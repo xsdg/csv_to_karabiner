@@ -21,8 +21,31 @@ rule_tmpl = {
 }
 
 # A single manipulation
-key_tmpl = {
+press_tmpl = {
     'type' => 'basic',
+    'parameters' => {
+        'basic.simultaneous_threshold_milliseconds' => 100
+    },
+    'from' => {
+        'modifiers' => {
+            'optional' => ['any']
+        },
+        'simultaneous' => [
+        ],
+    },
+    'to' => [
+        {
+            'repeat': false,
+            'key_code' => nil
+        },
+    ],
+}
+
+hold_tmpl = {
+    'type' => 'basic',
+    'parameters' => {
+        'basic.simultaneous_threshold_milliseconds' => 5000
+    },
     'from' => {
         'modifiers' => {
             'optional' => ['any']
@@ -79,9 +102,10 @@ input.each_with_index {
 
     # Print some diagnostic output.
     $stderr.puts [out_key, actions].inspect
-    # Makes a deep copy of key_tmpl that we can fill in without modifying the
-    # original.
-    key_impl = Marshal.load(Marshal.dump(key_tmpl))
+    # Makes a deep copy of the appropriate template that we can fill in without
+    # modifying the original.
+    has_hold = actions.flatten.include? 'hold'
+    key_impl = Marshal.load(Marshal.dump(has_hold ? hold_tmpl : press_tmpl))
 
     # For each involved key, add it to the "from" configuration.
     # TODO: Actually handle "press" and "hold" differently.  Currently, this
@@ -109,8 +133,11 @@ rule_impl['manipulators'].sort_by! {
 }
 
 structure['rules'] << rule_impl
-$stderr.puts structure.inspect
 
 # Finished generating the structure.  Now just convert to JSON and print.
-#$stderr.puts "Finished product:"
-#puts JSON.pretty_generate(structure)
+if (true)
+    $stderr.puts "Printing finished product to stdout"
+    puts JSON.pretty_generate(structure)
+else
+    $stderr.puts structure.inspect
+end
