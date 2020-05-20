@@ -40,27 +40,41 @@ key_tmpl = {
 
 # For now, we just put everything into a single rule.
 rule_impl = Marshal.load(Marshal.dump(rule_tmpl))
+column = {}
 key_list = []
 # For each row in the CSV that we imported above...
 input.each_with_index {
     |row, idx|
+    # Make everything lowercase by convention.
+    row.map! {|val| val.downcase if val}
+
     # Parse the two-line header (ignore the first line and stash the second).
     if (idx == 0)
+        row.each_with_index {
+            |col, cidx|
+            column[col] = cidx
+        }
         next
     elsif (idx == 1)
         key_list = row
-        key_list.shift
         $stderr.puts key_list.inspect
         next
     end
 
+    if (not row[column['ignore']].nil?)
+        next
+    elsif (not row[column['modifiers']].nil?)
+        $stderr.puts "Modifiers not yet supported! Dropping row #{idx}"
+        next
+    end
+
     # The `shift` method removes the first item from the array and returns it
-    out_key = row.shift
+    out_key = row[column['key']]
     # The `zip` method pairs each element from the first array with the
     # corresponding (by index) array from the second array.  In this case, we
     # get each key name with an empty (nil) action or an action that is some
     # variation of "press" or "hold".
-    all_actions = key_list.zip(row)
+    all_actions = key_list.zip(row)[column['key 0']..column['key 9']]
     actions = all_actions.reject {|(key, action)| action.nil?}
 
     # Print some diagnostic output.
