@@ -90,6 +90,10 @@ input.each_with_index {
 
     # The `shift` method removes the first item from the array and returns it
     out_key = row[column['key']]
+    # If the out key stars with the special prefix "lazy ", drop that prefix and
+    # set this flag to true; otherwise, set to false.
+    out_key_is_lazy = !!out_key.delete_prefix!('lazy ')
+
     # The `zip` method pairs each element from the first array with the
     # corresponding (by index) array from the second array.  In this case, we
     # get each key name with an empty (nil) action or an action that is some
@@ -112,6 +116,8 @@ input.each_with_index {
 
     # Sets the output key code, and any modifiers.
     key_impl['to'][0]['key_code'] = out_key
+    key_impl['to'][0]['lazy'] = true if out_key_is_lazy
+
     # If any modifiers were specified, add them to the out key also.
     if (not row[column['modifiers']].nil?)
         key_impl['to'][0]['modifiers'] = \
