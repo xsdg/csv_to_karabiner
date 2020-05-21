@@ -71,7 +71,7 @@ input.each_with_index {
     # Make everything lowercase by convention.
     row.map! {|val| val.downcase if val}
 
-    # Parse the two-line header (ignore the first line and stash the second).
+    # Parse the two-line header.
     if (idx == 0)
         row.each_with_index {
             |col, cidx|
@@ -85,9 +85,6 @@ input.each_with_index {
     end
 
     if (not row[column['ignore']].nil?)
-        next
-    elsif (not row[column['modifiers']].nil?)
-        $stderr.puts "Modifiers not yet supported! Dropping row #{idx}"
         next
     end
 
@@ -108,16 +105,18 @@ input.each_with_index {
     key_impl = Marshal.load(Marshal.dump(has_hold ? hold_tmpl : press_tmpl))
 
     # For each involved key, add it to the "from" configuration.
-    # TODO: Actually handle "press" and "hold" differently.  Currently, this
-    #       treats everything as "press."
     actions.each {
         |(in_key, action)|
-        key_impl['from']['simultaneous'] << \
-            {'key_code' => in_key}
+        key_impl['from']['simultaneous'] << {'key_code' => in_key}
     }
 
-    # Sets the output key code to the name from the leftmost-column.
+    # Sets the output key code, and any modifiers.
     key_impl['to'][0]['key_code'] = out_key
+    # If any modifiers were specified, add them to the out key also.
+    if (not row[column['modifiers']].nil?)
+        key_impl['to'][0]['modifiers'] = \
+            row[column['modifiers']].split(%r{\s*\+\s*})
+    end
 
     # Print some more diagnostic output.
     $stderr.puts key_impl.inspect
