@@ -9,62 +9,128 @@ input = CSV.new(File.read(ARGV[0]))
 
 # Sets up some templates that we'll use to generate a document structure.  This
 # document structure will be converted to JSON at the end.
-structure = {
-    'title' => 'something',
-    'rules' => []
-}
+def document(rules)
+    return {
+        'title' => 'something',
+        'rules' => rules
+    }
+end
 
 # A single rule
-rule_tmpl = {
-    'description' => 'It\'s the rule, obviously',
-    'manipulators' => []
-}
+def rule_stanza(desc, manipulators)
+    return {
+        'description' => desc,
+        'manipulators' => manipulators
+    }
+end
 
 # A single manipulation
-press_tmpl = {
-    'type' => 'basic',
-    'parameters' => {
-        'basic.simultaneous_threshold_milliseconds' => 100
-    },
-    'from' => {
-        'modifiers' => {
-            'optional' => ['any']
+def basic_keypress_stanza(out_key_code, modifiers, key_defs)
+    impl = {
+        'type' => 'basic',
+        'parameters' => {
+            'basic.simultaneous_threshold_milliseconds' => 100
         },
-        'simultaneous' => [
+        'from' => {
+            'modifiers' => {
+                'optional' => ['any']
+            },
+            'simultaneous' => key_defs,
+        },
+        'to' => [
+            {
+                'repeat': false,
+                'key_code' => out_key_code,
+            },
         ],
-    },
-    'to' => [
-        {
-            'repeat': false,
-            'key_code' => nil
-        },
-    ],
-}
+    }
 
-hold_tmpl = {
-    'type' => 'basic',
-    'parameters' => {
-        'basic.simultaneous_threshold_milliseconds' => 5000
-    },
-    'from' => {
-        'modifiers' => {
-            'optional' => ['any']
+    if (not modifiers.empty?)
+        impl['to'][0]['modifiers'] = modifiers
+    end
+
+    return impl
+end
+
+defined_hold_keys = {}
+def hold_modifier_stanza(var_name, key_defs)
+    return {
+        'type' => 'basic',
+        'parameters' => {
+            'basic.simultaneous_threshold_milliseconds' => 100,
+            'basic.to_if_alone_timeout_milliseconds' => 250,
+            'basic.to_if_held_down_threshold_milliseconds' => 250,
         },
-        'simultaneous' => [
+        'from' => {
+            'modifiers' => {
+                'optional' => ['any']
+            },
+            'simultaneous' => key_defs,
+        },
+        'to_if_held_down' => [
+            {
+                'repeat': false,
+                'set_variable': {
+                    'name' => var_name,
+                    'value' => 1,
+                }
+                # lazy?
+            },
         ],
-    },
-    'to' => [
-        {
-            'repeat': false,
-            'key_code' => nil
-        },
-    ],
-}
+        'to_after_key_up' => [
+            {
+                'set_variable': {
+                    'name' => var_name,
+                    'value' => 0,
+                }
+            },
+        ],
+    }
+end
 
-# For now, we just put everything into a single rule.
-rule_impl = Marshal.load(Marshal.dump(rule_tmpl))
+def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_defs)
+    impl = {
+        'type' => 'basic',
+        'parameters' => {
+            'basic.simultaneous_threshold_milliseconds' => 100
+        },
+        'from' => {
+            'modifiers' => {
+                'optional' => ['any']
+            },
+            'simultaneous' => key_defs,
+        },
+        'to' => [
+            {
+                'repeat': false,
+                'key_code' => out_key_code,
+            }
+        ],
+        'conditions' => [
+            {
+                'type' => 'variable_if',
+                'name' => hold_var_name,
+                'value' => 1
+            },
+        ],
+    }
+
+    if (not modifiers.empty?)
+        impl['to'][0]['modifiers'] = modifiers
+    end
+
+    return impl
+end
+
+def key_defs(actions)
+    return actions.map{|(in_key, action)| {'key_code' => in_key}}
+end
+
+# Get ready to start parsing the CSV.
+manipulators = {'basic' => [], 'hold_modifiers' => []}
 column = {}
 key_list = []
+
 # For each row in the CSV that we imported above...
 input.each_with_index {
     |row, idx|
@@ -88,7 +154,6 @@ input.each_with_index {
         next
     end
 
-    # The `shift` method removes the first item from the array and returns it
     out_key = row[column['key']]
     # If the out key stars with the special prefix "lazy ", drop that prefix and
     # set this flag to true; otherwise, set to false.
@@ -103,41 +168,54 @@ input.each_with_index {
 
     # Print some diagnostic output.
     $stderr.puts [out_key, actions].inspect
-    # Makes a deep copy of the appropriate template that we can fill in without
-    # modifying the original.
-    has_hold = actions.flatten.include? 'hold'
-    key_impl = Marshal.load(Marshal.dump(has_hold ? hold_tmpl : press_tmpl))
 
-    # For each involved key, add it to the "from" configuration.
-    actions.each {
-        |(in_key, action)|
-        key_impl['from']['simultaneous'] << {'key_code' => in_key}
+    # Partitions keys by type, deduces any modifiers, and creates manipulator
+    # stanzas for each of them.
+    # FIXME lazy
+    press_keys, hold_keys = actions.partition {
+        |(in_key, action)| action == 'press'
     }
+    modifiers = (row[column['modifiers']] || '').split(%r{\s*\+\s*})
+    if hold_keys.empty?
+        key_stanza = basic_keypress_stanza(
+                out_key, modifiers, key_defs(press_keys))
 
-    # Sets the output key code, and any modifiers.
-    key_impl['to'][0]['key_code'] = out_key
-    key_impl['to'][0]['lazy'] = true if out_key_is_lazy
+        # Print some more diagnostic output.
+        $stderr.puts('press')
+        $stderr.puts key_stanza.inspect
+        $stderr.puts
 
-    # If any modifiers were specified, add them to the out key also.
-    if (not row[column['modifiers']].nil?)
-        key_impl['to'][0]['modifiers'] = \
-            row[column['modifiers']].split(%r{\s*\+\s*})
+        manipulators['basic'] << key_stanza
+    else
+        var_name = 'hold_' + hold_keys.map{|(key, action)| key}.sort.join
+        mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
+        key_stanza = hold_keypress_stanza(
+                out_key, var_name, modifiers, key_defs(press_keys))
+
+        $stderr.puts 'hold'
+        $stderr.puts mod_stanza.inspect
+        $stderr.puts key_stanza.inspect
+        $stderr.puts
+
+        manipulators['basic'] << key_stanza
+        manipulators['hold_modifiers'] << mod_stanza
     end
-
-    # Print some more diagnostic output.
-    $stderr.puts key_impl.inspect
-    $stderr.puts
-
-    rule_impl['manipulators'] << key_impl
 }
 
 # Sort with greatest number of simultaneously-held keys first.
-rule_impl['manipulators'].sort_by! {
+manipulators['basic'].sort_by! {
+    |manip|
+    -1 * manip['from']['simultaneous'].size
+}
+manipulators['hold_modifiers'].sort_by! {
     |manip|
     -1 * manip['from']['simultaneous'].size
 }
 
-structure['rules'] << rule_impl
+basic_rule = rule_stanza('basic keypress rules', manipulators['basic'])
+hold_mod_rule = rule_stanza('hold modifier rules', manipulators['hold_modifiers'])
+
+structure = document([hold_mod_rule, basic_rule])
 
 # Finished generating the structure.  Now just convert to JSON and print.
 if (true)
