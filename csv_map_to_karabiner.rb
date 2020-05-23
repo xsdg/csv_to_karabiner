@@ -176,7 +176,10 @@ input.each_with_index {
         |(in_key, action)| action == 'press'
     }
     modifiers = (row[column['modifiers']] || '').split(%r{\s*\+\s*})
-    if hold_keys.empty?
+    if press_keys.empty?
+        # This is not valid.
+        raise "Invalid specification; no press keys specified: #{row.inspect}"
+    elsif hold_keys.empty?
         key_stanza = basic_keypress_stanza(
                 out_key, modifiers, key_defs(press_keys))
 
