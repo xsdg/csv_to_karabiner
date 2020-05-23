@@ -52,7 +52,6 @@ def basic_keypress_stanza(out_key_code, modifiers, key_defs)
     return impl
 end
 
-defined_hold_keys = {}
 def hold_modifier_stanza(var_name, key_defs)
     return {
         'type' => 'basic',
@@ -66,6 +65,10 @@ def hold_modifier_stanza(var_name, key_defs)
                 'optional' => ['any']
             },
             'simultaneous' => key_defs,
+            'simultaneous_options' => [
+                'detect_key_down_uninterruptedly' => true,
+                'key_up_when' => 'all',
+            ],
         },
         'to_if_held_down' => [
             {
@@ -99,6 +102,10 @@ def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_defs)
                 'optional' => ['any']
             },
             'simultaneous' => key_defs,
+            'simultaneous_options' => [
+                'detect_key_down_uninterruptedly' => true,
+                'key_up_when' => 'all',
+            ],
         },
         'to' => [
             {
@@ -213,7 +220,7 @@ manipulators['basic'].sort_by! {
 manipulators['hold_modifiers'].sort_by! {
     |manip|
     -1 * manip['from']['simultaneous'].size
-}
+}.uniq!
 
 basic_rule = rule_stanza('basic keypress rules', manipulators['basic'])
 hold_mod_rule = rule_stanza('hold modifier rules', manipulators['hold_modifiers'])
