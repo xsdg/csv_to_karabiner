@@ -11,7 +11,7 @@ input = CSV.new(File.read(ARGV[0]))
 # document structure will be converted to JSON at the end.
 def document(rules)
     return {
-        'title' => 'something',
+        'title' => 'From csv key map; Generated at ' + Time.now.to_s,
         'rules' => rules
     }
 end
@@ -104,7 +104,7 @@ def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_defs)
             'simultaneous' => key_defs,
             'simultaneous_options' => [
                 'detect_key_down_uninterruptedly' => true,
-                'key_up_when' => 'all',
+                'key_up_when' => 'any',
             ],
         },
         'to' => [
@@ -200,7 +200,8 @@ input.each_with_index {
         var_name = 'hold_' + hold_keys.map{|(key, action)| key}.sort.join
         mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
         key_stanza = hold_keypress_stanza(
-                out_key, var_name, modifiers, key_defs(press_keys))
+                out_key, var_name, modifiers,
+                key_defs(hold_keys) + key_defs(press_keys))
 
         $stderr.puts 'hold'
         $stderr.puts mod_stanza.inspect
