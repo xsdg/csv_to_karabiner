@@ -65,10 +65,10 @@ def hold_modifier_stanza(var_name, key_defs)
                 'optional' => ['any']
             },
             'simultaneous' => key_defs,
-            'simultaneous_options' => [
-                'detect_key_down_uninterruptedly' => true,
-                'key_up_when' => 'all',
-            ],
+            #'simultaneous_options' => [
+            #    'detect_key_down_uninterruptedly' => true,
+            #    'key_up_when' => 'all',
+            #],
         },
         'to_if_held_down' => [
             {
@@ -91,21 +91,22 @@ def hold_modifier_stanza(var_name, key_defs)
     }
 end
 
-def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_defs)
+def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_def)
     impl = {
         'type' => 'basic',
         'parameters' => {
             'basic.simultaneous_threshold_milliseconds' => 100
         },
         'from' => {
+            'key_code' => key_def,
             'modifiers' => {
                 'optional' => ['any']
             },
-            'simultaneous' => key_defs,
-            'simultaneous_options' => [
-                'detect_key_down_uninterruptedly' => true,
-                'key_up_when' => 'any',
-            ],
+            #'simultaneous' => key_defs,
+            #'simultaneous_options' => [
+            #    'detect_key_down_uninterruptedly' => true,
+            #    'key_up_when' => 'any',
+            #],
         },
         'to' => [
             {
@@ -134,7 +135,7 @@ def key_defs(actions)
 end
 
 # Get ready to start parsing the CSV.
-manipulators = {'basic' => [], 'hold_modifiers' => []}
+manipulators = {'basic' => [], 'hold_mod' => [], 'hold_press' => []}
 column = {}
 key_list = []
 
@@ -183,10 +184,10 @@ input.each_with_index {
         |(in_key, action)| action == 'press'
     }
     modifiers = (row[column['modifiers']] || '').split(%r{\s*\+\s*})
-    if press_keys.empty?
+    if (press_keys.empty?)
         # This is not valid.
         raise "Invalid specification; no press keys specified: #{row.inspect}"
-    elsif hold_keys.empty?
+    elsif (hold_keys.empty?)
         key_stanza = basic_keypress_stanza(
                 out_key, modifiers, key_defs(press_keys))
 
@@ -197,36 +198,42 @@ input.each_with_index {
 
         manipulators['basic'] << key_stanza
     else
+        if (press_keys.size > 1)
+            raise "Hold + multi-press is not supported: #{row.inspect}"
+        end
+        press_key = press_keys.first[0]
+
         var_name = 'hold_' + hold_keys.map{|(key, action)| key}.sort.join
         mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
         key_stanza = hold_keypress_stanza(
-                out_key, var_name, modifiers,
-                key_defs(hold_keys) + key_defs(press_keys))
+                out_key, var_name, modifiers, press_key)
 
         $stderr.puts 'hold'
         $stderr.puts mod_stanza.inspect
         $stderr.puts key_stanza.inspect
         $stderr.puts
 
-        manipulators['basic'] << key_stanza
-        manipulators['hold_modifiers'] << mod_stanza
+        manipulators['hold_press'] << key_stanza
+        manipulators['hold_mod'] << mod_stanza
     end
 }
 
 # Sort with greatest number of simultaneously-held keys first.
 manipulators['basic'].sort_by! {
     |manip|
-    -1 * manip['from']['simultaneous'].size
+    # If no 'simultaneous' key, substitute 1.
+    -1 * (manip['from']['simultaneous'].size rescue 1)
 }
-manipulators['hold_modifiers'].sort_by! {
+manipulators['hold_mod'].sort_by! {
     |manip|
     -1 * manip['from']['simultaneous'].size
 }.uniq!
 
 basic_rule = rule_stanza('basic keypress rules', manipulators['basic'])
-hold_mod_rule = rule_stanza('hold modifier rules', manipulators['hold_modifiers'])
+hold_mod_rule = rule_stanza('hold modifier rules', manipulators['hold_mod'])
+hold_press_rule = rule_stanza('hold keypress rules', manipulators['hold_press'])
 
-structure = document([hold_mod_rule, basic_rule])
+structure = document([hold_mod_rule, hold_press_rule, basic_rule])
 
 # Finished generating the structure.  Now just convert to JSON and print.
 if (true)
