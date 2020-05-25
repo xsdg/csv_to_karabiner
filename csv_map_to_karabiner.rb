@@ -28,9 +28,6 @@ end
 def basic_keypress_stanza(out_key_code, modifiers, key_defs)
     impl = {
         'type' => 'basic',
-        'parameters' => {
-            'basic.simultaneous_threshold_milliseconds' => 100
-        },
         'from' => {
             'modifiers' => {
                 'optional' => ['any']
@@ -56,7 +53,6 @@ def hold_modifier_stanza(var_name, key_defs)
     return {
         'type' => 'basic',
         'parameters' => {
-            'basic.simultaneous_threshold_milliseconds' => 100,
             'basic.to_if_alone_timeout_milliseconds' => 250,
             'basic.to_if_held_down_threshold_milliseconds' => 250,
         },
@@ -89,9 +85,6 @@ end
 def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_def)
     impl = {
         'type' => 'basic',
-        'parameters' => {
-            'basic.simultaneous_threshold_milliseconds' => 100
-        },
         'from' => {
             'key_code' => key_def,
             'modifiers' => {
@@ -207,9 +200,7 @@ input.each_with_index {
         # A duplicate like this will occur if multiple hold-and-press key
         # combinations share a hold combination.  This avoids creating redundant
         # entries.
-        if (hold_index.has_key? hold_summary)
-            next
-        end
+        skip_hold_mod = hold_index.has_key? hold_summary
 
         var_name = 'hold_' + hold_summary
         mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
@@ -217,7 +208,11 @@ input.each_with_index {
                 out_key, var_name, modifiers, press_key)
 
         # More diagnostic output.
-        $stderr.puts 'hold'
+        if skip_hold_mod
+            $stderr.puts 'truncated hold'
+        else
+            $stderr.puts 'hold'
+        end
         $stderr.puts mod_stanza.inspect
         $stderr.puts key_stanza.inspect
         $stderr.puts
@@ -226,8 +221,10 @@ input.each_with_index {
         # For hold-and-press key combinations, the held-key combination and the
         # pressed key combination go in separate rules.
         manipulators['hold_press'] << key_stanza
-        manipulators['hold_mod'] << mod_stanza
-        hold_index[hold_summary] = manipulators['hold_mod'].last
+        if not skip_hold_mod
+            manipulators['hold_mod'] << mod_stanza
+            hold_index[hold_summary] = manipulators['hold_mod'].last
+        end
     end
 }
 
