@@ -3,6 +3,16 @@
 require 'csv'
 require 'json'
 
+module Enumerable
+  def stable_sort
+    sort_by.with_index { |x, idx| [x, idx] }
+  end
+
+  def stable_sort_by
+    sort_by.with_index { |x, idx| [yield(x), idx] }
+  end
+end
+
 # Expects a filename to be specified as the first argument, reads the file with
 # that name, and parses that file as a CSV document.
 input = CSV.new(File.read(ARGV[0]))
@@ -49,13 +59,13 @@ def basic_keypress_stanza(out_key_code, modifiers, key_defs)
     return impl
 end
 
+# Default parameters:
+# simultaneous_threshold_milliseconds: 100
+# to_if_alone_timeout_milliseconds: 250
+# to_if_held_down_threshold_milliseconds: 250
 def hold_modifier_stanza(var_name, key_defs)
     return {
         'type' => 'basic',
-        'parameters' => {
-            'basic.to_if_alone_timeout_milliseconds' => 250,
-            'basic.to_if_held_down_threshold_milliseconds' => 250,
-        },
         'from' => {
             'modifiers' => {
                 'optional' => ['any']
@@ -250,23 +260,21 @@ input.each_with_index {
     $stderr.puts
 }
 
-# Sort with greatest number of simultaneously-held keys first.
-manipulators['basic'].sort_by! {
+# Sort with greatest number of simultaneously-held keys first, but in a way
+# that always retains the 'hold_mod' manipulators before the 'hold_press'
+# manipulators before the 'basic' manipulators within each partition.
+all_manips = (manipulators['hold_mod'] + manipulators['hold_press']
+              + manipulators['basic'])
+all_manips = all_manips.stable_sort_by {
     |manip|
     # If no 'simultaneous' key, substitute 1.
     -1 * (manip['from']['simultaneous'].size rescue 1)
 }
-manipulators['hold_mod'].sort_by! {
-    |manip|
-    -1 * manip['from']['simultaneous'].size
-}
 
 # Finally, generate the rule stanzas and create the finished configuration.
-basic_rule = rule_stanza('basic keypress rules', manipulators['basic'])
-hold_mod_rule = rule_stanza('hold modifier rules', manipulators['hold_mod'])
-hold_press_rule = rule_stanza('hold keypress rules', manipulators['hold_press'])
+rules = rule_stanza('rules', all_manips)
 
-structure = document([hold_mod_rule, hold_press_rule, basic_rule])
+structure = document([rules])
 
 # Finished generating the structure.  Now just convert to JSON and print.
 if (true)
