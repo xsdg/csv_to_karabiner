@@ -35,7 +35,45 @@ def rule_stanza(desc, manipulators)
 end
 
 # Helpers to generate and return single manipulations.
-def basic_keypress_stanza(out_key_code, modifiers, key_defs)
+def to_stanza_for_basic_keypress(out_key_code, modifiers, out_mouse, repeat)
+    impl = {
+        'to' => []
+    }
+
+    # Adds a "key_code" entry, if out_key_code is defined.
+    if (not out_key_code.nil?)
+        to_impl = {}
+        to_impl['repeat'] = repeat
+        to_impl['key_code'] = out_key_code
+
+        if (not modifiers.empty?)
+            to_impl['modifiers'] = modifiers
+        end
+
+        impl['to'] << to_impl
+    end
+
+    # Adds one mouse-related entry for each pair in out_mouse.
+    if (not out_mouse.nil?)
+        out_mouse.each {
+            |(action, value)|
+            to_impl = {}
+            to_impl['repeat'] = repeat
+
+            if (action == 'button')
+                to_impl['pointing_button'] = "button#{value}"
+            else
+                to_impl['mouse_key'] = {action => value.to_i}
+            end
+
+            impl['to'] << to_impl
+        }
+    end
+
+    return impl
+end
+
+def basic_keypress_stanza(out_key_code, modifiers, out_mouse, key_defs, repeat)
     impl = {
         'type' => 'basic',
         'from' => {
@@ -44,17 +82,10 @@ def basic_keypress_stanza(out_key_code, modifiers, key_defs)
             },
             'simultaneous' => key_defs,
         },
-        'to' => [
-            {
-                'repeat': false,
-                'key_code' => out_key_code,
-            },
-        ],
     }
 
-    if (not modifiers.empty?)
-        impl['to'][0]['modifiers'] = modifiers
-    end
+    impl.merge!(to_stanza_for_basic_keypress(
+            out_key_code, modifiers, out_mouse, repeat))
 
     return impl
 end
@@ -92,7 +123,8 @@ def hold_modifier_stanza(var_name, key_defs)
     }
 end
 
-def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_def)
+def hold_keypress_stanza(hold_var_name, out_key_code, modifiers, out_mouse,
+                         key_def, repeat)
     impl = {
         'type' => 'basic',
         'from' => {
@@ -103,12 +135,6 @@ def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_def)
             # TODO: can we support this?
             # 'simultaneous' => key_defs,
         },
-        'to' => [
-            {
-                'repeat': false,
-                'key_code' => out_key_code,
-            }
-        ],
         'conditions' => [
             {
                 'type' => 'variable_if',
@@ -118,9 +144,8 @@ def hold_keypress_stanza(out_key_code, hold_var_name, modifiers, key_def)
         ],
     }
 
-    if (not modifiers.empty?)
-        impl['to'][0]['modifiers'] = modifiers
-    end
+    impl.merge!(to_stanza_for_basic_keypress(
+            out_key_code, modifiers, out_mouse, repeat))
 
     return impl
 end
@@ -161,9 +186,13 @@ input.each_with_index {
     end
 
     out_key = row[column['key']]
-    # If the out key stars with the special prefix "lazy ", drop that prefix and
-    # set this flag to true; otherwise, set to false.
-    out_key_is_lazy = !!out_key.delete_prefix!('lazy ')
+    # If specified, interpret column contents as space-delimited key-value
+    # pairs.  Otherwise, nil.
+    out_mouse = Hash[ *row[column['mouse']].split() ] if out_key.nil?
+
+    if (out_key.nil? and out_mouse.nil?)
+        raise "Invalid specification; no actions defined: #{row.inspect}"
+    end
 
     # The `zip` method pairs each element from the first array with the
     # corresponding (by index) element from the second array.  In this case, we
@@ -172,7 +201,7 @@ input.each_with_index {
     actions = all_actions.reject {|(key, action)| action.nil?}
 
     # Print some diagnostic output.
-    $stderr.puts [out_key, actions].inspect
+    $stderr.puts [out_key, out_mouse, actions].inspect
 
     # Partitions keys by type, deduces any modifiers, and creates manipulator
     # stanzas for each of them.
@@ -189,7 +218,7 @@ input.each_with_index {
         # The summary is a concatenated string of key_codes.
         key_summary = press_keys.map{|(key, action)| key}.sort.join
         key_stanza = basic_keypress_stanza(
-                out_key, modifiers, key_defs(press_keys))
+                out_key, modifiers, out_mouse, key_defs(press_keys), false)
 
         # Print some more diagnostic output.
         $stderr.puts('press')
@@ -215,7 +244,7 @@ input.each_with_index {
         var_name = 'hold_' + hold_summary
         mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
         key_stanza = hold_keypress_stanza(
-                out_key, var_name, modifiers, press_key)
+                var_name, out_key, modifiers, out_mouse, press_key, false)
 
         # More diagnostic output.
         if skip_hold_mod
@@ -263,8 +292,8 @@ input.each_with_index {
 # Sort with greatest number of simultaneously-held keys first, but in a way
 # that always retains the 'hold_mod' manipulators before the 'hold_press'
 # manipulators before the 'basic' manipulators within each partition.
-all_manips = (manipulators['hold_mod'] + manipulators['hold_press']
-              + manipulators['basic'])
+all_manips = (manipulators['hold_mod'] + manipulators['hold_press'] +
+              manipulators['basic'])
 all_manips = all_manips.stable_sort_by {
     |manip|
     # If no 'simultaneous' key, substitute 1.
