@@ -35,7 +35,8 @@ def rule_stanza(desc, manipulators)
 end
 
 # Helpers to generate and return single manipulations.
-def to_stanza_for_basic_keypress(out_key_code, modifiers, out_mouse, repeat)
+def to_stanza_for_basic_keypress(out_key_code, modifiers, out_key_is_repeated,
+                                 out_mouse, out_mouse_is_repeated)
     impl = {
         'to' => []
     }
@@ -43,7 +44,7 @@ def to_stanza_for_basic_keypress(out_key_code, modifiers, out_mouse, repeat)
     # Adds a "key_code" entry, if out_key_code is defined.
     if (not out_key_code.nil?)
         to_impl = {}
-        to_impl['repeat'] = repeat
+        to_impl['repeat'] = out_key_is_repeated
         to_impl['key_code'] = out_key_code
 
         if (not modifiers.empty?)
@@ -58,7 +59,7 @@ def to_stanza_for_basic_keypress(out_key_code, modifiers, out_mouse, repeat)
         out_mouse.each {
             |(action, value)|
             to_impl = {}
-            to_impl['repeat'] = repeat
+            to_impl['repeat'] = out_mouse_is_repeated
 
             if (action == 'button')
                 to_impl['pointing_button'] = "button#{value}"
@@ -73,7 +74,8 @@ def to_stanza_for_basic_keypress(out_key_code, modifiers, out_mouse, repeat)
     return impl
 end
 
-def basic_keypress_stanza(out_key_code, modifiers, out_mouse, key_defs, repeat)
+def basic_keypress_stanza(out_key_code, modifiers, out_key_is_repeated,
+                          out_mouse, out_mouse_is_repeated, key_defs)
     impl = {
         'type' => 'basic',
         'from' => {
@@ -85,7 +87,8 @@ def basic_keypress_stanza(out_key_code, modifiers, out_mouse, key_defs, repeat)
     }
 
     impl.merge!(to_stanza_for_basic_keypress(
-            out_key_code, modifiers, out_mouse, repeat))
+            out_key_code, modifiers, out_key_is_repeated, out_mouse,
+            out_mouse_is_repeated))
 
     return impl
 end
@@ -123,8 +126,9 @@ def hold_modifier_stanza(var_name, key_defs)
     }
 end
 
-def hold_keypress_stanza(hold_var_name, out_key_code, modifiers, out_mouse,
-                         key_def, repeat)
+def hold_keypress_stanza(hold_var_name, out_key_code, modifiers,
+                         out_key_is_repeated, out_mouse, out_mouse_is_repeated,
+                         key_def)
     impl = {
         'type' => 'basic',
         'from' => {
@@ -145,7 +149,8 @@ def hold_keypress_stanza(hold_var_name, out_key_code, modifiers, out_mouse,
     }
 
     impl.merge!(to_stanza_for_basic_keypress(
-            out_key_code, modifiers, out_mouse, repeat))
+            out_key_code, modifiers, out_key_is_repeated, out_mouse,
+            out_mouse_is_repeated))
 
     return impl
 end
@@ -185,14 +190,24 @@ input.each_with_index {
         next
     end
 
+    # Stash the initial values (which may be modified later on).
     out_key = row[column['key']]
-    # If specified, interpret column contents as space-delimited key-value
-    # pairs.  Otherwise, nil.
-    out_mouse = Hash[ *row[column['mouse']].split() ] if out_key.nil?
+    out_mouse = row[column['mouse']]
 
     if (out_key.nil? and out_mouse.nil?)
         raise "Invalid specification; no actions defined: #{row.inspect}"
     end
+
+    # If the output actions start with the special prefix "repeat ", drop that
+    # prefix and set this flag to true; otherwise, set to false.
+    out_key_is_repeated = \
+            out_key.nil? ? false : !!out_key.delete_prefix!('repeat ')
+    out_mouse_is_repeated = \
+            out_mouse.nil? ? false : !!out_mouse.delete_prefix!('repeat ')
+
+    # If specified, interpret column contents as space-delimited key-value
+    # pairs.  Otherwise, nil.
+    out_mouse = Hash[ *row[column['mouse']].split() ] if out_key.nil?
 
     # The `zip` method pairs each element from the first array with the
     # corresponding (by index) element from the second array.  In this case, we
@@ -215,10 +230,16 @@ input.each_with_index {
         # This is not valid.
         raise "Invalid specification; no press keys specified: #{row.inspect}"
     elsif (hold_keys.empty?)
+        if (out_key_is_repeated or out_mouse_is_repeated)
+            raise "Invalid specification: repeat is only valid for key " \
+                  "combinations that include a hold: #{row.inspect}"
+        end
+
         # The summary is a concatenated string of key_codes.
         key_summary = press_keys.map{|(key, action)| key}.sort.join
         key_stanza = basic_keypress_stanza(
-                out_key, modifiers, out_mouse, key_defs(press_keys), false)
+                out_key, modifiers, out_key_is_repeated, out_mouse,
+                out_mouse_is_repeated, key_defs(press_keys))
 
         # Print some more diagnostic output.
         $stderr.puts('press')
@@ -244,7 +265,8 @@ input.each_with_index {
         var_name = 'hold_' + hold_summary
         mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
         key_stanza = hold_keypress_stanza(
-                var_name, out_key, modifiers, out_mouse, press_key, false)
+                var_name, out_key, modifiers, out_key_is_repeated, out_mouse,
+                out_mouse_is_repeated, press_key)
 
         # More diagnostic output.
         if skip_hold_mod
@@ -279,12 +301,13 @@ input.each_with_index {
     |key|
     $stderr.puts "Double key: #{key}"
     $stderr.puts hold_index[key].inspect
-    hold_index[key]['to_if_alone'] = [
-        {
-            'repeat': false,
-            'key_code': basic_index[key]['to'][0]['key_code'],
-        }
-    ]
+    hold_index[key]['to_if_alone'] = basic_index[key]['to']
+    #[
+    #    {
+    #        'repeat': false,
+    #        'key_code': basic_index[key]['to'][0]['key_code'],
+    #    }
+    #]
     $stderr.puts hold_index[key].inspect
     $stderr.puts
 }
