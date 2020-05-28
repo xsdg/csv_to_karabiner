@@ -13,6 +13,35 @@ module Enumerable
   end
 end
 
+# Adds delete_prefix and delete_prefix! methods if needed for compatibility with
+# older versions of ruby.
+if (not "".methods.include? :delete_prefix)
+    $stderr.puts "NOTE: patching delete_prefix method into String class for " \
+                 "old ruby version"
+    class String
+        def delete_prefix(prefix)
+            if (self[0...prefix.length] == prefix)
+                return self[prefix.length..-1]
+            end
+            return self
+        end
+
+        def delete_prefix!(prefix)
+            maybe_update = self.delete_prefix(prefix)
+            return nil if maybe_update == self
+
+            self[0..-1] = maybe_update
+            return true
+        end
+    end
+end
+
+if (ARGV.empty?)
+    puts "Usage:"
+    puts "#$0 input.csv > output.json"
+    exit 1
+end
+
 # Expects a filename to be specified as the first argument, reads the file with
 # that name, and parses that file as a CSV document.
 input = CSV.new(File.read(ARGV[0]))
