@@ -195,6 +195,7 @@ column = {}
 key_list = []
 basic_index = {}
 hold_index = {}
+basic_repeat_index = {}
 
 # For each row in the CSV that we imported above...
 input.each_with_index {
@@ -224,7 +225,7 @@ input.each_with_index {
     out_mouse = row[column['mouse']]
 
     if (out_key.nil? and out_mouse.nil?)
-        raise "Invalid specification; no actions defined: #{row.inspect}"
+        raise "Invalid specification; no actions defined:\n#{row.inspect}"
     end
 
     # If the output actions start with the special prefix "repeat ", drop that
@@ -257,11 +258,13 @@ input.each_with_index {
 
     if (press_keys.empty?)
         # This is not valid.
-        raise "Invalid specification; no press keys specified: #{row.inspect}"
+        raise "Invalid specification; no press keys specified:\n#{row.inspect}"
     elsif (hold_keys.empty?)
         if (out_key_is_repeated or out_mouse_is_repeated)
-            raise "Invalid specification: repeat is only valid for key " \
-                  "combinations that include a hold: #{row.inspect}"
+            $stderr.puts "WARNING: Key repeat for press-only combinations " \
+                    "is only valid when they don't coincide with the held " \
+                    "keys of hold-and-press combinations.  If a collision is " \
+                    "detected, an exception will be raised."
         end
 
         # The summary is a concatenated string of key_codes.
@@ -278,9 +281,12 @@ input.each_with_index {
         # Record the new manipulator, as well as a keyed index entry to it.
         manipulators['basic'] << key_stanza
         basic_index[key_summary] = manipulators['basic'].last
+        if (out_key_is_repeated or out_mouse_is_repeated)
+            basic_repeat_index[key_summary] = manipulators['basic'].last
+        end
     else
         if (press_keys.size > 1)
-            raise "Hold + multi-press is not supported: #{row.inspect}"
+            raise "Hold + multi-press is not supported:\n#{row.inspect}"
         end
         press_key = press_keys.first[0]
 
@@ -318,6 +324,14 @@ input.each_with_index {
     end
 }
 
+repeat_collisions = basic_repeat_index.keys & hold_index.keys
+if (not repeat_collisions.empty?)
+    raise "Invalid specification: press-only keys can only have repeat " \
+          "enabled when the don't coincide with the hold combination of " \
+          "press-and-hold keys.  But collisions exist for these " \
+          "combinations: #{repeat_collisions.inspect}"
+end
+
 # This workaround handles the case where the press keys for a basic_keypress
 # coincide with the _held_ keys for a hold-and-press combination.  Because all
 # hold_modifier stanzas precede all basic_keypress stanzas, the hold_modifier
@@ -331,12 +345,7 @@ input.each_with_index {
     $stderr.puts "Double key: #{key}"
     $stderr.puts hold_index[key].inspect
     hold_index[key]['to_if_alone'] = basic_index[key]['to']
-    #[
-    #    {
-    #        'repeat': false,
-    #        'key_code': basic_index[key]['to'][0]['key_code'],
-    #    }
-    #]
+
     $stderr.puts hold_index[key].inspect
     $stderr.puts
 }
