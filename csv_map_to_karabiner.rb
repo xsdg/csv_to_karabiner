@@ -65,7 +65,8 @@ end
 
 # Helpers to generate and return single manipulations.
 def to_stanza_for_basic_keypress(out_key_code, modifiers, out_key_is_repeated,
-                                 out_mouse, out_mouse_is_repeated)
+                                 out_mouse, out_mouse_is_repeated, out_custom,
+                                 out_custom_is_repeated)
     impl = {
         'to' => []
     }
@@ -100,11 +101,21 @@ def to_stanza_for_basic_keypress(out_key_code, modifiers, out_key_is_repeated,
         }
     end
 
+    # Adds one custom entry, if out_custom is defined.  The first token is used
+    # as the key, and the rest of the string is used as the value.
+    if (not out_custom.nil?)
+        to_impl = {}
+        to_impl['repeat'] = out_custom_is_repeated
+        to_impl[out_custom[0]] = out_custom[1]
+        impl['to'] << to_impl
+    end
+
     return impl
 end
 
 def basic_keypress_stanza(out_key_code, modifiers, out_key_is_repeated,
-                          out_mouse, out_mouse_is_repeated, key_defs)
+                          out_mouse, out_mouse_is_repeated, out_custom,
+                          out_custom_is_repeated, key_defs)
     impl = {
         'type' => 'basic',
         'from' => {
@@ -117,7 +128,7 @@ def basic_keypress_stanza(out_key_code, modifiers, out_key_is_repeated,
 
     impl.merge!(to_stanza_for_basic_keypress(
             out_key_code, modifiers, out_key_is_repeated, out_mouse,
-            out_mouse_is_repeated))
+            out_mouse_is_repeated, out_custom, out_custom_is_repeated))
 
     return impl
 end
@@ -157,7 +168,7 @@ end
 
 def hold_keypress_stanza(hold_var_name, out_key_code, modifiers,
                          out_key_is_repeated, out_mouse, out_mouse_is_repeated,
-                         key_def)
+                         out_custom, out_custom_is_repeated, key_def)
     impl = {
         'type' => 'basic',
         'from' => {
@@ -179,7 +190,7 @@ def hold_keypress_stanza(hold_var_name, out_key_code, modifiers,
 
     impl.merge!(to_stanza_for_basic_keypress(
             out_key_code, modifiers, out_key_is_repeated, out_mouse,
-            out_mouse_is_repeated))
+            out_mouse_is_repeated, out_custom, out_custom_is_repeated))
 
     return impl
 end
@@ -223,8 +234,9 @@ input.each_with_index {
     # Stash the initial values (which may be modified later on).
     out_key = row[column['key']]
     out_mouse = row[column['mouse']]
+    out_custom = row[column['custom action']]
 
-    if (out_key.nil? and out_mouse.nil?)
+    if (out_key.nil? and out_mouse.nil? and out_custom.nil?)
         raise "Invalid specification; no actions defined:\n#{row.inspect}"
     end
 
@@ -234,10 +246,20 @@ input.each_with_index {
             out_key.nil? ? false : !!out_key.delete_prefix!('repeat ')
     out_mouse_is_repeated = \
             out_mouse.nil? ? false : !!out_mouse.delete_prefix!('repeat ')
+    out_custom_is_repeated = \
+            out_custom.nil? ? false : !!out_custom.delete_prefix!('repeat ')
 
     # If specified, interpret column contents as space-delimited key-value
     # pairs.  Otherwise, nil.
-    out_mouse = Hash[ *row[column['mouse']].split() ] if out_key.nil?
+    out_mouse = Hash[ *out_mouse.split() ] unless out_mouse.nil?
+
+    # If specified, interpret column contents as space-delimited key-value
+    # pairs.  Otherwise, nil.
+    out_custom = out_custom.split(/\s+/, 2) unless out_custom.nil?
+    if (out_custom and out_custom.size < 2)
+        raise "Invalid specification; custom action must have an argument:\n" \
+              "#{row.inspect}"
+    end
 
     # The `zip` method pairs each element from the first array with the
     # corresponding (by index) element from the second array.  In this case, we
@@ -246,7 +268,7 @@ input.each_with_index {
     actions = all_actions.reject {|(key, action)| action.nil?}
 
     # Print some diagnostic output.
-    $stderr.puts [out_key, out_mouse, actions].inspect
+    $stderr.puts [out_key, out_mouse, out_custom, actions].inspect
 
     # Partitions keys by type, deduces any modifiers, and creates manipulator
     # stanzas for each of them.
@@ -260,7 +282,9 @@ input.each_with_index {
         # This is not valid.
         raise "Invalid specification; no press keys specified:\n#{row.inspect}"
     elsif (hold_keys.empty?)
-        if (out_key_is_repeated or out_mouse_is_repeated)
+        any_out_is_repeated = out_key_is_repeated or out_mouse_is_repeated \
+                              or out_custom_is_repeated
+        if (any_out_is_repeated)
             $stderr.puts "WARNING: Key repeat for press-only combinations " \
                     "is only valid when they don't coincide with the held " \
                     "keys of hold-and-press combinations.  If a collision is " \
@@ -271,7 +295,8 @@ input.each_with_index {
         key_summary = press_keys.map{|(key, action)| key}.sort.join
         key_stanza = basic_keypress_stanza(
                 out_key, modifiers, out_key_is_repeated, out_mouse,
-                out_mouse_is_repeated, key_defs(press_keys))
+                out_mouse_is_repeated, out_custom, out_custom_is_repeated,
+                key_defs(press_keys))
 
         # Print some more diagnostic output.
         $stderr.puts('press')
@@ -281,7 +306,7 @@ input.each_with_index {
         # Record the new manipulator, as well as a keyed index entry to it.
         manipulators['basic'] << key_stanza
         basic_index[key_summary] = manipulators['basic'].last
-        if (out_key_is_repeated or out_mouse_is_repeated)
+        if (any_out_is_repeated)
             basic_repeat_index[key_summary] = manipulators['basic'].last
         end
     else
@@ -301,7 +326,8 @@ input.each_with_index {
         mod_stanza = hold_modifier_stanza(var_name, key_defs(hold_keys))
         key_stanza = hold_keypress_stanza(
                 var_name, out_key, modifiers, out_key_is_repeated, out_mouse,
-                out_mouse_is_repeated, press_key)
+                out_mouse_is_repeated, out_custom, out_custom_is_repeated,
+                press_key)
 
         # More diagnostic output.
         if skip_hold_mod
